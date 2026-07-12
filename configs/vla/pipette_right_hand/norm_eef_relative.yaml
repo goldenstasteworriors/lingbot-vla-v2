@@ -1,0 +1,27 @@
+data:
+  datasets_type: vla
+  data_name: pipette_right_eef_relative
+  train_path: /home/nvme02/datasets/pick_up_pipette_right_hand
+  robot_config_root: ./configs/robot_configs
+  norm_path: assets/norm_stats/pipette_right_eef_relative.json
+  num_workers: 4
+  prompt_type: global
+  joints:
+    - arm.position: 14
+    - end.position: 14
+    - effector.position: 2
+    - hand.position: 12
+    - waist.position: 4
+    - head.position: 2
+    - base.position: 3
+  cameras:
+    - camera_top
+  norm_type:
+    - end.position: bounds_99_woclip
+    - hand.position: bounds_99_woclip
+  data_ratio_for_norm_compute: 1.0
+
+train:
+  micro_batch_size: 48
+  output_dir: ""
+  max_steps: 1
