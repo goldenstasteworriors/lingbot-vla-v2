@@ -58,7 +58,8 @@ train:
   rmpad: false
   rmpad_with_pos_ids: false
   ulysses_parallel_size: 1
-  freeze_vision_encoder: false
+  freeze_vision_encoder: true
+  train_expert_only: true
   tokenizer_max_length: 72
   action_dim: 55
   max_action_dim: 55
