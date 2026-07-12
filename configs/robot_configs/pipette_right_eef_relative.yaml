@@ -1,0 +1,46 @@
+states:
+  - observation.state.end.position:
+      # Source quaternion order is wxyz; LingBot relative-pose math expects xyzw.
+      origin_keys:
+        - observation.eef_state:
+            start: 7
+            end: 10
+        - observation.eef_state:
+            start: 11
+            end: 14
+        - observation.eef_state:
+            start: 10
+            end: 11
+  - observation.state.hand.position:
+      origin_keys:
+        - observation.state:
+            start: 35
+            end: 41
+
+actions:
+  - action.end.position:
+      # The prepared action column is also xyz+wxyz; reorder it to xyz+xyzw.
+      origin_keys:
+        - action.right_wrist_pose:
+            start: 0
+            end: 3
+        - action.right_wrist_pose:
+            start: 4
+            end: 7
+        - action.right_wrist_pose:
+            start: 3
+            end: 4
+      subtract_state: true
+      relative_type: quaternion_local
+  - action.hand.position:
+      origin_keys:
+        - action.wbc:
+            start: 35
+            end: 41
+      subtract_state: false
+
+images:
+  - observation.images.camera_top:
+      origin_keys: observation.images.ego_view
+
+norm_stats: assets/norm_stats/pipette_right_eef_relative.json

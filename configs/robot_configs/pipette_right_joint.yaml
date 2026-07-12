@@ -1,0 +1,31 @@
+states:
+  - observation.state.arm.position:
+      origin_keys:
+        - observation.state:
+            start: 22
+            end: 29
+  - observation.state.hand.position:
+      origin_keys:
+        - observation.state:
+            start: 35
+            end: 41
+
+actions:
+  - action.arm.position:
+      origin_keys:
+        - action.wbc:
+            start: 22
+            end: 29
+      subtract_state: false
+  - action.hand.position:
+      origin_keys:
+        - action.wbc:
+            start: 35
+            end: 41
+      subtract_state: false
+
+images:
+  - observation.images.camera_top:
+      origin_keys: observation.images.ego_view
+
+norm_stats: assets/norm_stats/pipette_right_joint.json
