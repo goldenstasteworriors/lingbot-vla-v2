@@ -16,6 +16,7 @@ from tqdm import trange
 from torch.utils.tensorboard import SummaryWriter
 from lingbotvla.utils.async_tb_writer import AsyncTBWriter
 from lingbotvla.checkpoint import build_checkpointer
+from lingbotvla.checkpoint.trainable import save_trainable_weights
 from lingbotvla.data import (
     OmniDataCollatorWithPacking,
     OmniDataCollatorWithPadding,
@@ -132,6 +133,10 @@ class MyTrainingArguments(TrainingArguments):
     train_expert_only: bool = field(
         default=False,
         metadata={"help": "Train action expert only or not."},
+    )
+    save_trainable_only: bool = field(
+        default=False,
+        metadata={"help": "Save only parameters with requires_grad=True, without optimizer state."},
     )
     train_state_proj: bool = field(
         default=True,
@@ -1120,16 +1125,20 @@ def main():
                 }
                 if args.train.global_rank == 0:
                     writer.flush()
-                Checkpointer.save(args.train.save_checkpoint_path, state, global_steps=global_step)
-                dist.barrier()
-                logger.info_rank0(f"Distributed checkpoint saved at {save_checkpoint_path} successfully!")
-                save_hf_checkpoint_best_effort(
-                    save_checkpoint_path,
-                    state,
-                    global_step,
-                    current_epoch_for_eval,
-                    current_epoch_step_for_eval,
-                )
+                if args.train.save_trainable_only:
+                    saved_path = save_trainable_weights(model, save_checkpoint_path, global_step)
+                    logger.info_rank0(f"Trainable-only weights saved at {saved_path} successfully!")
+                else:
+                    Checkpointer.save(args.train.save_checkpoint_path, state, global_steps=global_step)
+                    dist.barrier()
+                    logger.info_rank0(f"Distributed checkpoint saved at {save_checkpoint_path} successfully!")
+                    save_hf_checkpoint_best_effort(
+                        save_checkpoint_path,
+                        state,
+                        global_step,
+                        current_epoch_for_eval,
+                        current_epoch_step_for_eval,
+                    )
 
             if args.train.max_steps is not None and global_step >= args.train.max_steps:
                 logger.info_rank0(f"Reached max_steps={args.train.max_steps}, stopping training.")
@@ -1159,16 +1168,20 @@ def main():
                         "torch_rng_state": torch.get_rng_state(),
                     },
                 }
-                Checkpointer.save(args.train.save_checkpoint_path, state, global_steps=global_step)
-                dist.barrier()
-                logger.info_rank0(f"Distributed checkpoint saved at {save_checkpoint_path} successfully!")
-                save_hf_checkpoint_best_effort(
-                    save_checkpoint_path,
-                    state,
-                    global_step,
-                    current_epoch_for_eval,
-                    current_epoch_step_for_eval,
-                )
+                if args.train.save_trainable_only:
+                    saved_path = save_trainable_weights(model, save_checkpoint_path, global_step)
+                    logger.info_rank0(f"Trainable-only weights saved at {saved_path} successfully!")
+                else:
+                    Checkpointer.save(args.train.save_checkpoint_path, state, global_steps=global_step)
+                    dist.barrier()
+                    logger.info_rank0(f"Distributed checkpoint saved at {save_checkpoint_path} successfully!")
+                    save_hf_checkpoint_best_effort(
+                        save_checkpoint_path,
+                        state,
+                        global_step,
+                        current_epoch_for_eval,
+                        current_epoch_step_for_eval,
+                    )
             break
         if args.train.save_epochs and (epoch + 1) % args.train.save_epochs == 0:
             helper.empty_cache()
@@ -1185,16 +1198,20 @@ def main():
                     "torch_rng_state": torch.get_rng_state(),
                 },
             }
-            Checkpointer.save(args.train.save_checkpoint_path, state, global_steps=global_step)
-            dist.barrier()
-            logger.info_rank0(f"Distributed checkpoint saved at {save_checkpoint_path} successfully!")
-            save_hf_checkpoint_best_effort(
-                save_checkpoint_path,
-                state,
-                global_step,
-                current_epoch_for_eval,
-                current_epoch_step_for_eval,
-            )
+            if args.train.save_trainable_only:
+                saved_path = save_trainable_weights(model, save_checkpoint_path, global_step)
+                logger.info_rank0(f"Trainable-only weights saved at {saved_path} successfully!")
+            else:
+                Checkpointer.save(args.train.save_checkpoint_path, state, global_steps=global_step)
+                dist.barrier()
+                logger.info_rank0(f"Distributed checkpoint saved at {save_checkpoint_path} successfully!")
+                save_hf_checkpoint_best_effort(
+                    save_checkpoint_path,
+                    state,
+                    global_step,
+                    current_epoch_for_eval,
+                    current_epoch_step_for_eval,
+                )
 
     if max_steps_driven:
         data_loader_tqdm.close()
@@ -1205,7 +1222,7 @@ def main():
     del optimizer, lr_scheduler
     helper.empty_cache()
     # Ensure the last checkpoint has an HF conversion scheduled, then wait for async work.
-    if save_checkpoint_path is not None:
+    if save_checkpoint_path is not None and not args.train.save_trainable_only:
         save_hf_checkpoint_best_effort(
             save_checkpoint_path,
             state,
