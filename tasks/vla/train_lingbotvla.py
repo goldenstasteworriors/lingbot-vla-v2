@@ -16,7 +16,7 @@ from tqdm import trange
 from torch.utils.tensorboard import SummaryWriter
 from lingbotvla.utils.async_tb_writer import AsyncTBWriter
 from lingbotvla.checkpoint import build_checkpointer
-from lingbotvla.checkpoint.trainable import save_trainable_weights
+from lingbotvla.checkpoint.trainable import load_trainable_weights, save_trainable_weights
 from lingbotvla.data import (
     OmniDataCollatorWithPacking,
     OmniDataCollatorWithPadding,
@@ -674,6 +674,22 @@ def main():
         for cp in candidates:
             state = {"model": model, "ema": None, "optimizer": optimizer, "extra_state": {}}  # cannot be None
             try:
+                trainable_checkpoint = os.path.join(cp, "trainable_model.pt")
+                if os.path.isfile(trainable_checkpoint):
+                    load_trainable_weights(model, trainable_checkpoint)
+                    match = re.fullmatch(r"global_step_(\d+)", os.path.basename(cp))
+                    if match is None:
+                        raise ValueError(f"Cannot determine global step from {cp}")
+                    global_step = int(match.group(1))
+                    start_epoch = global_step // args.train.train_steps
+                    start_step = global_step % args.train.train_steps
+                    dist.barrier()
+                    logger.info_rank0(
+                        f"Loaded trainable-only checkpoint from {trainable_checkpoint} at step {global_step}; "
+                        "optimizer state is initialized fresh."
+                    )
+                    loaded = True
+                    break
                 Checkpointer.load(cp, state, allow_partial_load=getattr(args.train, 'allow_partial_checkpoint', False))
                 global_step = state["extra_state"]["global_step"]
                 start_epoch = global_step // args.train.train_steps
@@ -1126,7 +1142,9 @@ def main():
                 if args.train.global_rank == 0:
                     writer.flush()
                 if args.train.save_trainable_only:
-                    saved_path = save_trainable_weights(model, save_checkpoint_path, global_step)
+                    saved_path = save_trainable_weights(
+                        model, save_checkpoint_path, global_step, args.train.save_total_limit
+                    )
                     logger.info_rank0(f"Trainable-only weights saved at {saved_path} successfully!")
                 else:
                     Checkpointer.save(args.train.save_checkpoint_path, state, global_steps=global_step)
@@ -1169,7 +1187,9 @@ def main():
                     },
                 }
                 if args.train.save_trainable_only:
-                    saved_path = save_trainable_weights(model, save_checkpoint_path, global_step)
+                    saved_path = save_trainable_weights(
+                        model, save_checkpoint_path, global_step, args.train.save_total_limit
+                    )
                     logger.info_rank0(f"Trainable-only weights saved at {saved_path} successfully!")
                 else:
                     Checkpointer.save(args.train.save_checkpoint_path, state, global_steps=global_step)
@@ -1199,7 +1219,9 @@ def main():
                 },
             }
             if args.train.save_trainable_only:
-                saved_path = save_trainable_weights(model, save_checkpoint_path, global_step)
+                saved_path = save_trainable_weights(
+                    model, save_checkpoint_path, global_step, args.train.save_total_limit
+                )
                 logger.info_rank0(f"Trainable-only weights saved at {saved_path} successfully!")
             else:
                 Checkpointer.save(args.train.save_checkpoint_path, state, global_steps=global_step)

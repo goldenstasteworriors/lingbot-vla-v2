@@ -71,12 +71,13 @@ train:
   num_train_epochs: 29000
   micro_batch_size: 1
   global_batch_size: 1
-  max_steps: 5000
+  max_steps: 20000
   ckpt_manager: dcp
   save_steps: 1000
+  save_total_limit: 2
   save_epochs: 29000
   enable_fp32: false
-  enable_resume: false
+  enable_resume: true
   save_hf_weights: false
   align_params:
     mode: query

@@ -1,5 +1,7 @@
 import json
 import os
+import re
+import shutil
 from typing import TYPE_CHECKING
 
 import torch
@@ -9,7 +11,9 @@ if TYPE_CHECKING:
     from torch.nn import Module
 
 
-def save_trainable_weights(model: "Module", checkpoint_dir: str, global_step: int) -> str:
+def save_trainable_weights(
+    model: "Module", checkpoint_dir: str, global_step: int, save_total_limit: int = 0
+) -> str:
     """Save parameters updated by post-training without duplicating a frozen backbone."""
     trainable_state = {}
     trainable_numel = 0
@@ -48,6 +52,18 @@ def save_trainable_weights(model: "Module", checkpoint_dir: str, global_step: in
         }
         with open(os.path.join(checkpoint_dir, "trainable_manifest.json"), "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2)
+        if save_total_limit > 0:
+            checkpoints_root = os.path.dirname(checkpoint_dir)
+            pattern = re.compile(r"global_step_(\d+)")
+            checkpoints = []
+            for dirname in os.listdir(checkpoints_root):
+                match = pattern.fullmatch(dirname)
+                path = os.path.join(checkpoints_root, dirname)
+                if match and os.path.isfile(os.path.join(path, "trainable_model.pt")):
+                    checkpoints.append((int(match.group(1)), path))
+            checkpoints.sort(reverse=True)
+            for _, path in checkpoints[save_total_limit:]:
+                shutil.rmtree(path)
     if dist.is_initialized():
         dist.barrier()
     return output_path
