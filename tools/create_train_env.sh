@@ -5,13 +5,14 @@ export PYTHONNOUSERSITE=1
 export PIP_NO_INPUT=1
 
 ENV_NAME="lingbotvla"
+ENV_PREFIX_OVERRIDE=""
 RECREATE=0
 RESUME=0
 FLASH_ATTN_WHEEL="${FLASH_ATTN_WHEEL:-}"
 
 usage() {
   cat <<'USAGE'
-Usage: bash tools/create_train_env.sh [--env-name NAME] [--recreate] [--resume] [--flash-attn-wheel PATH]
+Usage: bash tools/create_train_env.sh [--env-name NAME] [--env-prefix PATH] [--recreate] [--resume] [--flash-attn-wheel PATH]
 
 Creates a clean Python 3.12 conda environment for lingbotvla training.
 Depth dependencies and local depth packages are always installed.
@@ -25,6 +26,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --env-name)
       ENV_NAME="${2:?--env-name requires a value}"
+      shift 2
+      ;;
+    --env-prefix)
+      ENV_PREFIX_OVERRIDE="${2:?--env-prefix requires a value}"
       shift 2
       ;;
     --recreate)
@@ -57,37 +62,40 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONDA_BASE="$(conda info --base)"
 eval "$(conda shell.bash hook)"
 
-ENV_PREFIX="${CONDA_BASE}/envs/${ENV_NAME}"
+if [[ -n "${ENV_PREFIX_OVERRIDE}" ]]; then
+  ENV_PREFIX="$(realpath -m "${ENV_PREFIX_OVERRIDE}")"
+else
+  ENV_PREFIX="${CONDA_BASE}/envs/${ENV_NAME}"
+fi
 ENV_EXISTS=0
-if conda env list | awk '{print $1}' | grep -Fxq "${ENV_NAME}"; then
+if conda env list | awk '{print $NF}' | grep -Fxq "${ENV_PREFIX}"; then
   ENV_EXISTS=1
 fi
 
 if [[ "${ENV_EXISTS}" == "1" || -d "${ENV_PREFIX}" ]]; then
   if [[ "${RECREATE}" == "1" ]]; then
     if [[ "${ENV_EXISTS}" == "1" ]]; then
-      conda env remove -n "${ENV_NAME}" -y
+      conda env remove -p "${ENV_PREFIX}" -y
     fi
     if [[ -d "${ENV_PREFIX}" ]]; then
-      case "${ENV_PREFIX}" in
-        "${CONDA_BASE}/envs/"*) rm -rf "${ENV_PREFIX}" ;;
-        *) echo "Refusing to remove unexpected env prefix: ${ENV_PREFIX}" >&2; exit 1 ;;
-      esac
+      echo "Conda metadata is missing for existing prefix: ${ENV_PREFIX}" >&2
+      echo "Refusing to remove it automatically." >&2
+      exit 1
     fi
     ENV_EXISTS=0
   elif [[ "${RESUME}" == "1" ]]; then
     echo "Resuming install in existing conda env: ${ENV_NAME}"
   else
-    echo "Conda env already exists: ${ENV_NAME}" >&2
+    echo "Conda env already exists: ${ENV_PREFIX}" >&2
     echo "Pass --resume to continue installing into it, or --recreate to remove and rebuild it." >&2
     exit 1
   fi
 fi
 
 if [[ "${RESUME}" != "1" || "${ENV_EXISTS}" != "1" ]]; then
-  conda create -n "${ENV_NAME}" python=3.12 pip -y
+  conda create -p "${ENV_PREFIX}" python=3.12 pip -y
 fi
-conda activate "${ENV_NAME}"
+conda activate "${ENV_PREFIX}"
 
 python -m pip install -U pip setuptools wheel
 
@@ -178,4 +186,4 @@ if ! python -m pip check; then
   echo "[WARN] lerobot and depth subpackages are installed with --no-deps intentionally to preserve training pins." >&2
 fi
 
-echo "Environment ready: ${ENV_NAME}"
+echo "Environment ready: ${ENV_PREFIX}"
