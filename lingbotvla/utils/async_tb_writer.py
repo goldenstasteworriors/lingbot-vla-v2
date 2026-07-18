@@ -57,15 +57,23 @@ class AsyncTBWriter:
         self._queue.put(("_expert_bar", (tag, counts_cpu, global_step, title)))
 
     def flush(self):
-        """Block until all queued writes are done, then flush the event file."""
+        """Flush queued events without allowing telemetry I/O to stop training."""
         self._queue.join()
-        self._writer.flush()
+        try:
+            self._writer.flush()
+            return True
+        except Exception as e:
+            logger.warning("AsyncTBWriter: flush failed: %s", e)
+            return False
 
     def close(self):
         self.flush()
         self._queue.put(None)  # sentinel to stop worker
         self._thread.join(timeout=10)
-        self._writer.close()
+        try:
+            self._writer.close()
+        except Exception as e:
+            logger.warning("AsyncTBWriter: close failed: %s", e)
 
     # ---- internals ----
 

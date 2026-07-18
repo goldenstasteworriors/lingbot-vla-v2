@@ -30,6 +30,7 @@ data:
 
 train:
   output_dir: /workspace/WM/lingbot-vla-v2/output/pipette_right_hand_test/joint
+  logging_dir: /dev/shm/lingbot-vla-v2/tensorboard/pipette_right_hand_test/joint
   enable_gradient_checkpointing: true
   precompute_grid_thw: true
   vlm_causal: true

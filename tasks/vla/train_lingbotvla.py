@@ -577,7 +577,8 @@ def main():
     )
 
     if args.train.global_rank == 0:
-        log_dir=f"{args.train.output_dir}/runs/"
+        log_dir = args.train.logging_dir
+        logger.info_rank0(f"TensorBoard log directory: {log_dir}")
         writer = AsyncTBWriter(log_dir=log_dir)
         if args.train.use_wandb:
             wandb.init(
@@ -1139,8 +1140,6 @@ def main():
                         "torch_rng_state": torch.get_rng_state(),
                     },
                 }
-                if args.train.global_rank == 0:
-                    writer.flush()
                 if args.train.save_trainable_only:
                     saved_path = save_trainable_weights(
                         model, save_checkpoint_path, global_step, args.train.save_total_limit
@@ -1157,6 +1156,8 @@ def main():
                         current_epoch_for_eval,
                         current_epoch_step_for_eval,
                     )
+                if args.train.global_rank == 0:
+                    writer.flush()
 
             if args.train.max_steps is not None and global_step >= args.train.max_steps:
                 logger.info_rank0(f"Reached max_steps={args.train.max_steps}, stopping training.")
