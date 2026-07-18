@@ -75,8 +75,13 @@ class LeRobotDataset(BaseLeRobotDataset):
         load_image: bool = True,
         **kwargs,
     ):
+        requested_video_backend = kwargs.get("video_backend")
         super().__init__(repo_id, **kwargs)
         self.load_image = load_image
+        # LeRobot resolves None back to its package default (torchcodec).
+        # Preserve None so our decoder can probe the extension and fall back
+        # to PyAV when a vendor PyTorch build has an incompatible ABI.
+        self.video_backend = requested_video_backend
 
     def _query_hf_dataset(self, query_indices: dict[str, list[int]]) -> dict:
         """
