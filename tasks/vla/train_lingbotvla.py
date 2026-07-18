@@ -118,6 +118,10 @@ def get_moe_param_groups(model: "torch.nn.Module", args_train) -> Optional[List[
 
 @dataclass
 class MyTrainingArguments(TrainingArguments):
+    tensorboard_log_dir: Optional[str] = field(
+        default=None,
+        metadata={"help": "TensorBoard event directory. Prefer a local filesystem for append-heavy logs."},
+    )
     freeze_vit: bool = field(
         default=False,
         metadata={"help": "Whether or not to freeze the vit parameters."},
@@ -577,7 +581,7 @@ def main():
     )
 
     if args.train.global_rank == 0:
-        log_dir = args.train.logging_dir
+        log_dir = args.train.tensorboard_log_dir or f"{args.train.output_dir}/runs/"
         logger.info_rank0(f"TensorBoard log directory: {log_dir}")
         writer = AsyncTBWriter(log_dir=log_dir)
         if args.train.use_wandb:
