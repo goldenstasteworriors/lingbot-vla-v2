@@ -49,7 +49,7 @@ class MultiVLADataset(Dataset):
         image_transforms: Callable | None = None,
         delta_timestamps: dict[list[float]] | None = None,
         tolerances_s: dict | None = None,
-        video_backend: str = 'torchcodec',
+        video_backend: str | None = None,
         chunk_size: int = 50,
         image_size = (224, 224),
         do_nomalize = True,

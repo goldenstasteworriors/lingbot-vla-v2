@@ -170,7 +170,7 @@ class VLADataset(Dataset):
         robot_config_root,
         config=None,
         processor=None,
-        video_backend = 'torchcodec',
+        video_backend: str | None = None,
         chunk_size = 50,
         image_size = (224, 224),
         do_nomalize = True,
