@@ -4,8 +4,8 @@
 The source dataset already contains the desired right-arm/right-hand commands in
 ``action.wbc``.  This script only adds an absolute right-wrist action column,
 copied from the measured end-effector pose at each frame.  The VLA feature
-transform then converts future absolute wrist poses into poses relative to the
-current wrist while constructing each action chunk.
+transform then converts the absolute wrist-pose chunk into previous-frame local
+deltas (``T_prev^-1 @ T_curr``) after reading it.
 """
 
 from __future__ import annotations

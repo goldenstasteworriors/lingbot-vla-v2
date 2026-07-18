@@ -4,8 +4,11 @@ from torch import Tensor
 
 __all__ = [
     '_is_quaternion_relative_type',
+    '_is_incremental_quaternion_relative_type',
     'relative_pose_quaternion',
     'absolute_pose_quaternion',
+    'incremental_relative_pose_quaternion',
+    'incremental_absolute_pose_quaternion',
 ]
 
 def quat_normalize(q: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
@@ -54,13 +57,22 @@ def quat_rotate_inverse(v: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
 def _resolve_quaternion_relative_type(relative_type: str | None) -> str:
     if relative_type in (None, 'world', 'quaternion', 'quaternion_world'):
         return 'world'
-    if relative_type in ('local', 'quaternion_local'):
+    if relative_type in ('local', 'quaternion_local', 'quaternion_local_incremental'):
         return 'local'
     raise ValueError(f"Unsupported quaternion relative type: {relative_type}")
 
 
 def _is_quaternion_relative_type(relative_type: str | None) -> bool:
-    return relative_type in {'quaternion', 'quaternion_world', 'quaternion_local'}
+    return relative_type in {
+        'quaternion',
+        'quaternion_world',
+        'quaternion_local',
+        'quaternion_local_incremental',
+    }
+
+
+def _is_incremental_quaternion_relative_type(relative_type: str | None) -> bool:
+    return relative_type == 'quaternion_local_incremental'
 
 
 
@@ -121,6 +133,45 @@ def absolute_pose_quaternion(
         abs_q = quat_canonicalize(quat_normalize(quat_multiply(s_q, r_q)))
         parts.append(torch.cat([abs_xyz, abs_q], dim=-1))
     return torch.cat(parts, dim=-1)
+
+
+def incremental_relative_pose_quaternion(
+    action: torch.Tensor,
+    state: torch.Tensor,
+) -> torch.Tensor:
+    """Convert absolute poses to previous-frame local deltas.
+
+    The first action is relative to the current observation. Later actions are
+    relative to the preceding absolute action, equivalent to EgoHumanoid's
+    ``T_prev^-1 @ T_curr`` post-read alignment.
+    """
+    if action.ndim < 2:
+        raise ValueError("Incremental pose conversion requires an action sequence")
+    reference = torch.cat([state.unsqueeze(-2), action[..., :-1, :]], dim=-2)
+    return relative_pose_quaternion(
+        action,
+        reference,
+        relative_type='quaternion_local',
+    )
+
+
+def incremental_absolute_pose_quaternion(
+    rel_action: torch.Tensor,
+    state: torch.Tensor,
+) -> torch.Tensor:
+    """Accumulate previous-frame local deltas back into absolute poses."""
+    if rel_action.ndim < 2:
+        raise ValueError("Incremental pose reconstruction requires an action sequence")
+    absolute_steps = []
+    reference = state
+    for step in rel_action.unbind(dim=-2):
+        reference = absolute_pose_quaternion(
+            step,
+            reference,
+            relative_type='quaternion_local',
+        )
+        absolute_steps.append(reference)
+    return torch.stack(absolute_steps, dim=-2)
 
 def matrix_to_quat(R: Tensor) -> Tensor:
     """Convert rotation matrix (..., 3, 3) to quaternion (..., 4) in xyzw format.

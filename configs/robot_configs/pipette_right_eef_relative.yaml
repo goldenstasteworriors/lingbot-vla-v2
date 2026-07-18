@@ -31,7 +31,8 @@ actions:
             start: 3
             end: 4
       subtract_state: true
-      relative_type: quaternion_local
+      # Read absolute poses, then form T_prev^-1 @ T_curr local deltas.
+      relative_type: quaternion_local_incremental
   - action.hand.position:
       origin_keys:
         - action.wbc:

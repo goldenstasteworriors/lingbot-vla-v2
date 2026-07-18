@@ -389,11 +389,16 @@ class FeatureTransform:
                 relative_type = self.action_relative_type.get(action_feature)
                 if _is_quaternion_relative_type(relative_type):
                     assert 'end.position' in action_feature
-                    item[action_feature] = relative_pose_quaternion(
-                        item[action_feature],
-                        item[state_feature],
-                        relative_type=relative_type,
-                    )
+                    if _is_incremental_quaternion_relative_type(relative_type):
+                        item[action_feature] = incremental_relative_pose_quaternion(
+                            item[action_feature], item[state_feature]
+                        )
+                    else:
+                        item[action_feature] = relative_pose_quaternion(
+                            item[action_feature],
+                            item[state_feature],
+                            relative_type=relative_type,
+                        )
                 else:
                     item[action_feature] -= item[state_feature]
 
@@ -500,11 +505,16 @@ class FeatureTransform:
                 relative_type = self.action_relative_type.get(action_feature)
                 if _is_quaternion_relative_type(relative_type):
                     assert 'end.position' in action_feature
-                    item[action_feature] = absolute_pose_quaternion(
-                        item[action_feature],
-                        item[state_feature],
-                        relative_type=relative_type,
-                    )
+                    if _is_incremental_quaternion_relative_type(relative_type):
+                        item[action_feature] = incremental_absolute_pose_quaternion(
+                            item[action_feature], item[state_feature]
+                        )
+                    else:
+                        item[action_feature] = absolute_pose_quaternion(
+                            item[action_feature],
+                            item[state_feature],
+                            relative_type=relative_type,
+                        )
                 else:
                     item[action_feature] += item[state_feature]
 
