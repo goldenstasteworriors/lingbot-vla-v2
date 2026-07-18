@@ -54,7 +54,7 @@ train:
   enable_full_shard: false
   module_fsdp_enable: true
   use_compile: false
-  use_wandb: false
+  use_wandb: true
   rmpad: false
   rmpad_with_pos_ids: false
   ulysses_parallel_size: 1
@@ -71,7 +71,7 @@ train:
   num_train_epochs: 29000
   micro_batch_size: 1
   global_batch_size: 1
-  max_steps: 20000
+  max_steps: 100000
   ckpt_manager: dcp
   save_steps: 1000
   save_total_limit: 2
