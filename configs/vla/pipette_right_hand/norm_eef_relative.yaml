@@ -1,7 +1,7 @@
 data:
   datasets_type: vla
   data_name: pipette_right_eef_relative
-  train_path: /home/nvme02/datasets/pick_up_pipette_right_hand
+  train_path: /workspace/WM/lingbot-vla-v2/data/pick_up_pipette_right_hand
   robot_config_root: ./configs/robot_configs
   norm_path: assets/norm_stats/pipette_right_eef_relative.json
   num_workers: 4
