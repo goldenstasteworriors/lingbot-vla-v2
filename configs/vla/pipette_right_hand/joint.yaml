@@ -71,7 +71,7 @@ train:
   num_train_epochs: 29000
   micro_batch_size: 1
   global_batch_size: 1
-  max_steps: 100000
+  max_steps: 1000000
   ckpt_manager: dcp
   save_steps: 1000
   save_total_limit: 2
