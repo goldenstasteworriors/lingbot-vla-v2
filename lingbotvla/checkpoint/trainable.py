@@ -74,7 +74,17 @@ def load_trainable_weights(model: "Module", checkpoint_path: str):
     payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     if payload.get("format") != "lingbotvla_trainable_only_v1":
         raise ValueError(f"Unsupported trainable checkpoint format: {payload.get('format')}")
-    incompatible = model.load_state_dict(payload["model"], strict=False)
+    # FSDP2 keeps model parameters as DTensors.  The trainable-only checkpoint,
+    # however, deliberately stores full CPU tensors so it is portable across
+    # world sizes.  The distributed state-dict API converts those full tensors
+    # back to each parameter's current DTensor placement during loading.
+    from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict
+
+    incompatible = set_model_state_dict(
+        model,
+        payload["model"],
+        options=StateDictOptions(full_state_dict=True, strict=False),
+    )
     unexpected = list(incompatible.unexpected_keys)
     if unexpected:
         raise ValueError(f"Unexpected trainable checkpoint keys: {unexpected}")
