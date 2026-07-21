@@ -511,9 +511,21 @@ class TrainingArguments:
         default="lingbotvla",
         metadata={"help": "Wandb project name."},
     )
+    wandb_entity: Optional[str] = field(
+        default=None,
+        metadata={"help": "Optional Wandb entity or team name."},
+    )
     wandb_name: Optional[str] = field(
         default=None,
         metadata={"help": "Wandb experiment name."},
+    )
+    wandb_id: Optional[str] = field(
+        default=None,
+        metadata={"help": "Optional stable Wandb run ID used for resume/backfill."},
+    )
+    wandb_resume: Literal["allow", "must", "never", "auto"] = field(
+        default="allow",
+        metadata={"help": "Wandb resume policy, applied when wandb_id is set."},
     )
     enable_profiling: bool = field(
         default=False,

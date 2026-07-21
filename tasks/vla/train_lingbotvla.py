@@ -585,10 +585,17 @@ def main():
         logger.info_rank0(f"TensorBoard log directory: {log_dir}")
         writer = AsyncTBWriter(log_dir=log_dir)
         if args.train.use_wandb:
-            wandb.init(
+            wandb_init_kwargs = dict(
+                project=args.train.wandb_project,
                 name=args.train.wandb_name,
                 config={**vars(args.model), **vars(args.data), **vars(args.train)},  # flatten dict
             )
+            if args.train.wandb_entity:
+                wandb_init_kwargs["entity"] = args.train.wandb_entity
+            if args.train.wandb_id:
+                wandb_init_kwargs["id"] = args.train.wandb_id
+                wandb_init_kwargs["resume"] = args.train.wandb_resume
+            wandb.init(**wandb_init_kwargs)
 
         if args.train.enable_profiling:
             profiler = helper.create_profiler(
@@ -974,13 +981,29 @@ def main():
 
 
             if args.train.global_rank == 0:
-                writer.add_scalar("training/loss", total_loss, global_step)
-                writer.add_scalar("training/vla_loss", total_vla_loss, global_step)
-                writer.add_scalar("training/depth_loss", total_depth_loss, global_step)
-                writer.add_scalar("training/future_depth_loss", total_future_depth_loss, global_step)
-                writer.add_scalar("training/future_video_loss", total_future_video_loss, global_step)
-                writer.add_scalar("training/sequence_wise_loss", total_seq_wise_loss, global_step)
-                writer.add_scalar("training/router_z_loss", total_router_z_loss, global_step)
+                wandb_scalars = {}
+
+                def _tb_scalar(value):
+                    if torch.is_tensor(value):
+                        if value.numel() != 1:
+                            return None
+                        return value.detach().float().item()
+                    return value
+
+                def _log_scalar(tag, value):
+                    scalar = _tb_scalar(value)
+                    if scalar is None:
+                        return
+                    writer.add_scalar(tag, scalar, global_step)
+                    wandb_scalars[tag] = scalar
+
+                _log_scalar("training/loss", total_loss)
+                _log_scalar("training/vla_loss", total_vla_loss)
+                _log_scalar("training/depth_loss", total_depth_loss)
+                _log_scalar("training/future_depth_loss", total_future_depth_loss)
+                _log_scalar("training/future_video_loss", total_future_video_loss)
+                _log_scalar("training/sequence_wise_loss", total_seq_wise_loss)
+                _log_scalar("training/router_z_loss", total_router_z_loss)
                 # MoE monitoring metrics.
                 #   moe_summary/*            -> every step (cheap cross-layer health glance)
                 #   moe_<metric>/layerXX     -> every moe_monitor_interval steps (per-layer, downsampled)
@@ -993,13 +1016,6 @@ def main():
                     "moe_zloss/layer",     # per-layer raw router z-loss -> downsampled
                 )
 
-                def _tb_scalar(value):
-                    if torch.is_tensor(value):
-                        if value.numel() != 1:
-                            return None
-                        return value.detach().float().item()
-                    return value
-
                 for key, value in loss_log.items():
                     # every step: cross-layer summaries + seq-wise average + legacy V1 keys
                     if (key.startswith("moe_summary/")
@@ -1007,15 +1023,15 @@ def main():
                             or key.startswith("token_moe/")):
                         scalar = _tb_scalar(value)
                         if scalar is not None:
-                            writer.add_scalar(key, scalar, global_step)
+                            _log_scalar(key, scalar)
                     elif key.startswith(moe_perlayer_prefixes) and log_moe_perlayer:
                         scalar = _tb_scalar(value)
                         if scalar is not None:
-                            writer.add_scalar(key, scalar, global_step)
+                            _log_scalar(key, scalar)
                     elif key.startswith("align/"):
                         scalar = _tb_scalar(value)
                         if scalar is not None:
-                            writer.add_scalar(key, scalar, global_step)
+                            _log_scalar(key, scalar)
                 align_training_aliases = {
                     "align/current_video_loss": "training/current_video_loss",
                     "align/current_video_loss_weighted": "training/current_video_loss_weighted",
@@ -1028,7 +1044,7 @@ def main():
                     if src_key in loss_log:
                         scalar = _tb_scalar(loss_log[src_key])
                         if scalar is not None:
-                            writer.add_scalar(dst_key, scalar, global_step)
+                            _log_scalar(dst_key, scalar)
                 # MoE expert-selection monitoring (per layer, every moe_monitor_interval):
                 #   moe_expert_selection/      -> original add_histogram (Histograms tab; bins
                 #                                 expert IDs, edges look inflated -- kept as-is).
@@ -1056,14 +1072,14 @@ def main():
                             )
                             mean = total_counts.mean()
                             load_cv = (total_counts.std(unbiased=False) / (mean + 1e-9)).item()
-                            writer.add_scalar("moe_summary/load_cv", load_cv, global_step)
-                writer.add_scalar("training/grad_norm", grad_norm, global_step)
-                writer.add_scalar("training/lr", lr, global_step)
+                            _log_scalar("moe_summary/load_cv", load_cv)
+                _log_scalar("training/grad_norm", grad_norm)
+                _log_scalar("training/lr", lr)
                 if expert_lr is not None:
-                    writer.add_scalar("training/expert_lr", expert_lr, global_step)
-                writer.add_scalar("training/avg_lang_length", avg_lang_length, global_step)
-                writer.add_scalar("training/max_norm_batch", ignore_batch_num, global_step)
-                writer.add_scalar("steptime", delta_time, global_step)
+                    _log_scalar("training/expert_lr", expert_lr)
+                _log_scalar("training/avg_lang_length", avg_lang_length)
+                _log_scalar("training/max_norm_batch", ignore_batch_num)
+                _log_scalar("steptime", delta_time)
                 # we only log the last mini batch if grad acc is activated
                 if dataset_names is not None and 'batch_mean_losses' in loss_log:
                     batch_mean_losses = loss_log['batch_mean_losses']  # shape (B,)
@@ -1076,7 +1092,10 @@ def main():
 
                     for name, values in group_losses.items():
                         mean_loss = sum(values) / len(values)
-                        writer.add_scalar(f"detailed_loss/{name}", mean_loss, global_step)
+                        _log_scalar(f"detailed_loss/{name}", mean_loss)
+
+                if args.train.use_wandb and wandb_scalars:
+                    wandb.log(wandb_scalars, step=global_step)
 
                 if args.train.enable_profiling and global_step <= args.train.profile_end_step:
                     profiler.step()
@@ -1244,6 +1263,8 @@ def main():
         data_loader_tqdm.close()
     if args.train.global_rank == 0:
         writer.close()
+        if args.train.use_wandb:
+            wandb.finish()
     torch.cuda.synchronize()
     # release memory
     del optimizer, lr_scheduler
