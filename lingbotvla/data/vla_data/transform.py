@@ -8,7 +8,8 @@ import einops
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torchvision.transforms import v2
+from torchvision.transforms import InterpolationMode, v2
+from torchvision.transforms.v2 import functional as tvf
 from lingbotvla.utils import logging as logging_utils
 
 logger = logging_utils.get_logger(__name__)
@@ -227,12 +228,20 @@ def sample_visual_augmentation_params(
     reference: Tensor,
 ) -> dict:
     """Sample one replayable augmentation config for all views/frames in a sample."""
-    _visual_hw(reference)
+    height, width = _visual_hw(reference)
     device = reference.device
+    crop_scale = 0.95
+    crop_height = max(1, int(round(height * crop_scale)))
+    crop_width = max(1, int(round(width * crop_scale)))
     return {
+        "crop_top": int(torch.randint(height - crop_height + 1, (), device=device).item()),
+        "crop_left": int(torch.randint(width - crop_width + 1, (), device=device).item()),
+        "crop_scale": crop_scale,
+        "rotation_degrees": float((torch.rand((), device=device) * 10.0 - 5.0).item()),
         "brightness": 0.7 + torch.rand((), device=device) * 0.6,
         "contrast": 0.6 + torch.rand((), device=device) * 0.8,
         "saturation": 0.5 + torch.rand((), device=device),
+        "color_order": torch.randperm(3, device=device).cpu().tolist(),
     }
 
 def apply_visual_augmentation(
@@ -260,14 +269,33 @@ def apply_visual_augmentation(
     if image.max() > 1.0:
         image = image / 255.0
 
-    brightness = params["brightness"].to(device=image.device, dtype=image.dtype)
-    contrast = params["contrast"].to(device=image.device, dtype=image.dtype)
-    saturation = params["saturation"].to(device=image.device, dtype=image.dtype)
-    image = image * brightness
-    mean = image.mean(dim=[1, 2, 3], keepdim=True)
-    image = (image - mean) * contrast + mean
-    gray = image.mean(dim=1, keepdim=True)
-    image = gray + (image - gray) * saturation
+    crop_scale = float(params["crop_scale"])
+    crop_height = max(1, int(round(height * crop_scale)))
+    crop_width = max(1, int(round(width * crop_scale)))
+    image = tvf.resized_crop(
+        image,
+        top=int(params["crop_top"]),
+        left=int(params["crop_left"]),
+        height=crop_height,
+        width=crop_width,
+        size=[height, width],
+        interpolation=InterpolationMode.BILINEAR,
+        antialias=True,
+    )
+    image = tvf.rotate(
+        image,
+        angle=float(params["rotation_degrees"]),
+        interpolation=InterpolationMode.BILINEAR,
+        fill=0.0,
+    )
+
+    color_ops = (
+        lambda x: tvf.adjust_brightness(x, float(params["brightness"])),
+        lambda x: tvf.adjust_contrast(x, float(params["contrast"])),
+        lambda x: tvf.adjust_saturation(x, float(params["saturation"])),
+    )
+    for op_index in params["color_order"]:
+        image = color_ops[op_index](image)
     image = image.clamp(0.0, 1.0)
 
     if orig_dtype == torch.uint8:

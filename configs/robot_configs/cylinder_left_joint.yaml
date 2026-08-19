@@ -1,0 +1,31 @@
+states:
+  - observation.state.arm.position:
+      origin_keys:
+        - observation.state:
+            start: 15
+            end: 22
+  - observation.state.hand.position:
+      origin_keys:
+        - observation.state:
+            start: 29
+            end: 35
+
+actions:
+  - action.arm.position:
+      origin_keys:
+        - action.wbc:
+            start: 15
+            end: 22
+      subtract_state: false
+  - action.hand.position:
+      origin_keys:
+        - action.wbc:
+            start: 29
+            end: 35
+      subtract_state: false
+
+images:
+  - observation.images.camera_top:
+      origin_keys: observation.images.ego_view
+
+norm_stats: assets/norm_stats/cylinder_left_joint_8_18_8_19.json

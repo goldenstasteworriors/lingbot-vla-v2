@@ -16,7 +16,11 @@ from tqdm import trange
 from torch.utils.tensorboard import SummaryWriter
 from lingbotvla.utils.async_tb_writer import AsyncTBWriter
 from lingbotvla.checkpoint import build_checkpointer
-from lingbotvla.checkpoint.trainable import load_trainable_weights, save_trainable_weights
+from lingbotvla.checkpoint.trainable import (
+    freeze_non_action_parameters,
+    load_trainable_weights,
+    save_trainable_weights,
+)
 from lingbotvla.data import (
     OmniDataCollatorWithPacking,
     OmniDataCollatorWithPadding,
@@ -141,6 +145,16 @@ class MyTrainingArguments(TrainingArguments):
     save_trainable_only: bool = field(
         default=False,
         metadata={"help": "Save only parameters with requires_grad=True, without optimizer state."},
+    )
+    train_action_head_only: bool = field(
+        default=False,
+        metadata={"help": "Freeze every policy parameter outside the V2 action expert/head."},
+    )
+    compact_save_mode: Literal[
+        "trainable_only", "action_head_only", "action_and_latest_non_action"
+    ] = field(
+        default="trainable_only",
+        metadata={"help": "Compact weight export policy used when save_trainable_only=True."},
     )
     train_state_proj: bool = field(
         default=True,
@@ -387,6 +401,12 @@ def main():
         config_kwargs=config_kwargs,
         moe_implementation=getattr(args.model, 'moe_implementation', None),
     )
+    if args.train.train_action_head_only:
+        action_numel, frozen_numel = freeze_non_action_parameters(model)
+        logger.info_rank0(
+            f"Action-head-only training enabled: {action_numel:,} action parameters trainable; "
+            f"{frozen_numel:,} non-action parameters frozen."
+        )
     use_depth_align = True if args.train.align_params != {} else False
     use_future_depth = args.train.align_params.get('depth', {}).get('use_future_depth', False)
     use_future_video = use_depth_align and args.train.align_params.get('use_future_video', False)
@@ -689,6 +709,24 @@ def main():
                 trainable_checkpoint = os.path.join(cp, "trainable_model.pt")
                 if os.path.isfile(trainable_checkpoint):
                     load_trainable_weights(model, trainable_checkpoint)
+                    if args.train.compact_save_mode == "action_and_latest_non_action":
+                        non_action_checkpoint = os.path.join(
+                            os.path.dirname(cp), "latest_non_action", "non_action_model.pt"
+                        )
+                        if not os.path.isfile(non_action_checkpoint):
+                            raise FileNotFoundError(
+                                "Full-finetune compact resume requires the latest non-action snapshot: "
+                                f"{non_action_checkpoint}"
+                            )
+                        non_action_payload = torch.load(
+                            non_action_checkpoint, map_location="cpu", weights_only=False
+                        )
+                        match = re.fullmatch(r"global_step_(\d+)", os.path.basename(cp))
+                        if match is None or non_action_payload.get("global_step") != int(match.group(1)):
+                            raise ValueError(
+                                "Action and latest non-action checkpoints have different global steps."
+                            )
+                        load_trainable_weights(model, non_action_checkpoint)
                     match = re.fullmatch(r"global_step_(\d+)", os.path.basename(cp))
                     if match is None:
                         raise ValueError(f"Cannot determine global step from {cp}")
@@ -1165,7 +1203,11 @@ def main():
                 }
                 if args.train.save_trainable_only:
                     saved_path = save_trainable_weights(
-                        model, save_checkpoint_path, global_step, args.train.save_total_limit
+                        model,
+                        save_checkpoint_path,
+                        global_step,
+                        args.train.save_total_limit,
+                        args.train.compact_save_mode,
                     )
                     logger.info_rank0(f"Trainable-only weights saved at {saved_path} successfully!")
                 else:
@@ -1212,7 +1254,11 @@ def main():
                 }
                 if args.train.save_trainable_only:
                     saved_path = save_trainable_weights(
-                        model, save_checkpoint_path, global_step, args.train.save_total_limit
+                        model,
+                        save_checkpoint_path,
+                        global_step,
+                        args.train.save_total_limit,
+                        args.train.compact_save_mode,
                     )
                     logger.info_rank0(f"Trainable-only weights saved at {saved_path} successfully!")
                 else:
@@ -1244,7 +1290,11 @@ def main():
             }
             if args.train.save_trainable_only:
                 saved_path = save_trainable_weights(
-                    model, save_checkpoint_path, global_step, args.train.save_total_limit
+                    model,
+                    save_checkpoint_path,
+                    global_step,
+                    args.train.save_total_limit,
+                    args.train.compact_save_mode,
                 )
                 logger.info_rank0(f"Trainable-only weights saved at {saved_path} successfully!")
             else:
