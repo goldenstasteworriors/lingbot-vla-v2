@@ -2,26 +2,26 @@ states:
   - observation.state.arm.position:
       origin_keys:
         - observation.state:
-            start: 15
-            end: 22
+            start: 0
+            end: 7
   - observation.state.hand.position:
       origin_keys:
         - observation.state:
-            start: 29
-            end: 35
+            start: 7
+            end: 13
 
 actions:
   - action.arm.position:
       origin_keys:
-        - action.wbc:
-            start: 15
-            end: 22
+        - action:
+            start: 0
+            end: 7
       subtract_state: false
   - action.hand.position:
       origin_keys:
-        - action.wbc:
-            start: 29
-            end: 35
+        - action:
+            start: 7
+            end: 13
       subtract_state: false
 
 images:
