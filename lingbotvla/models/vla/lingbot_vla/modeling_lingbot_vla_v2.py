@@ -50,6 +50,48 @@ except Exception:
 logger = logging.get_logger(__name__)
 
 
+def build_action_loss_mask(
+    losses: Tensor,
+    joint_mask: Optional[Tensor],
+    action_is_pad: Optional[Tensor],
+    action_dim: int,
+) -> Tensor:
+    """Combine joint-dimension validity with episode-boundary action padding.
+
+    LeRobot repeats the final action when a future action chunk crosses an
+    episode boundary and exposes those repeated steps through ``action_is_pad``.
+    The returned boolean mask has the same ``[B, T, D]`` shape as ``losses`` so
+    padded timesteps are excluded from both the loss numerator and denominator.
+    """
+    if losses.ndim != 3:
+        raise ValueError(f"Expected action losses with shape [B,T,D], got {tuple(losses.shape)}")
+
+    if joint_mask is None:
+        loss_mask = torch.zeros_like(losses, dtype=torch.bool)
+        loss_mask[..., :action_dim] = True
+    else:
+        loss_mask = joint_mask.to(device=losses.device, dtype=torch.bool)
+        if loss_mask.ndim == 2:
+            loss_mask = loss_mask.unsqueeze(1).expand(-1, losses.shape[1], -1)
+        if loss_mask.shape != losses.shape:
+            raise ValueError(
+                f"joint_mask shape {tuple(loss_mask.shape)} does not match losses {tuple(losses.shape)}"
+            )
+
+    if action_is_pad is not None:
+        pad_mask = action_is_pad.to(device=losses.device, dtype=torch.bool)
+        if pad_mask.ndim == 1 and losses.shape[0] == 1:
+            pad_mask = pad_mask.unsqueeze(0)
+        if pad_mask.shape != losses.shape[:2]:
+            raise ValueError(
+                f"action_is_pad shape {tuple(pad_mask.shape)} does not match "
+                f"loss batch/time shape {tuple(losses.shape[:2])}"
+            )
+        loss_mask = loss_mask & ~pad_mask.unsqueeze(-1)
+
+    return loss_mask
+
+
 class QwenvlWithExpertV2Config(PretrainedConfig):
     model_type = "QwenvlWithExpertV2Model"
 
@@ -1287,19 +1329,22 @@ class LingbotVlaV2Policy(PreTrainedModel):
             future_video_current_patch=future_video_current_patch,
         )
 
-        if joint_mask is not None:
-            if "repeat" in self.config.loss_type:
+        if "repeat" in self.config.loss_type:
+            if joint_mask is not None:
                 joint_mask = joint_mask.repeat(2, 1, 1)
-            assert len(joint_mask.shape) == 3
-            
-            masked_losses = losses * joint_mask
-            valid_counts = joint_mask.sum(dim=(1, 2)).clamp(min=1)
-            batch_mean_losses = masked_losses.sum(dim=(1, 2)) / valid_counts
-            loss_vla = masked_losses.sum() / joint_mask.sum().clamp(min=1)
-        else:
-            losses = losses[:, :, : self.config.action_dim]
-            batch_mean_losses = losses.mean(dim=(1, 2))
-            loss_vla = losses.mean()
+            if action_is_pad is not None:
+                action_is_pad = action_is_pad.repeat(2, 1)
+
+        loss_mask = build_action_loss_mask(
+            losses,
+            joint_mask=joint_mask,
+            action_is_pad=action_is_pad,
+            action_dim=self.config.action_dim,
+        )
+        masked_losses = losses * loss_mask
+        valid_counts = loss_mask.sum(dim=(1, 2)).clamp(min=1)
+        batch_mean_losses = masked_losses.sum(dim=(1, 2)) / valid_counts
+        loss_vla = masked_losses.sum() / loss_mask.sum().clamp(min=1)
 
         loss_dict["batch_mean_losses"] = batch_mean_losses.detach()
         total_loss = (
