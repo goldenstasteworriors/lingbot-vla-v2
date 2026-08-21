@@ -12,16 +12,10 @@ states:
 
 actions:
   - action.arm.position:
-      origin_keys:
-        - action:
-            start: 0
-            end: 7
+      convert_from_state: true
       subtract_state: false
   - action.hand.position:
-      origin_keys:
-        - action:
-            start: 7
-            end: 13
+      convert_from_state: true
       subtract_state: false
 
 images:
