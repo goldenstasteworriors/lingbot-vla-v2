@@ -30,8 +30,8 @@ data:
   image_augment: true
 
 train:
-  output_dir: /workspace/WM/lingbot-vla-v2/output/cylinder_left_joint_8_18_8_19/action_head_only_50000
-  tensorboard_log_dir: /workspace/WM/lingbot-vla-v2/output/cylinder_left_joint_8_18_8_19/action_head_only_50000/tensorboard
+  output_dir: /workspace/WM/lingbot-vla-v2/output/cylinder_left_joint_8_18_8_19/action_head_only_obs_target_50000
+  tensorboard_log_dir: /workspace/WM/lingbot-vla-v2/output/cylinder_left_joint_8_18_8_19/action_head_only_obs_target_50000/tensorboard
   enable_gradient_checkpointing: true
   precompute_grid_thw: true
   vlm_causal: true
@@ -59,7 +59,7 @@ train:
   use_wandb: true
   wandb_project: lingbot-vla-v2-cylinder
   wandb_entity: ttyyc-hust
-  wandb_name: cylinder-left-8-18-8-19-action-head-only-50000
+  wandb_name: cylinder-left-8-18-8-19-action-head-only-obs-target-50000
   rmpad: false
   rmpad_with_pos_ids: false
   ulysses_parallel_size: 1
