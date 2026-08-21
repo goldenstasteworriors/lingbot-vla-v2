@@ -55,6 +55,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--start-frame", type=int, default=0)
     parser.add_argument("--num-steps", type=int, default=300)
     parser.add_argument("--execution-steps", type=int, default=25)
+    parser.add_argument("--denoise-steps", type=int)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--use-fp32", action="store_true")
     return parser.parse_args()
@@ -219,6 +220,7 @@ def rollout_episode(
         "steps": len(reference) - 1,
         "fps": float(metadata.fps),
         "execution_steps": args.execution_steps,
+        "denoise_steps": int(policy.config.num_steps),
         "action_horizon": int(policy.config.chunk_size),
         "state_rmse": float(np.sqrt(np.mean(error**2))),
         "arm_state_rmse": float(np.sqrt(np.mean(error[:, :7] ** 2))),
@@ -242,6 +244,7 @@ def rollout_episode(
         "image_key": "observation.images.ego_view",
         "action_horizon": int(policy.config.chunk_size),
         "executed_steps_per_chunk": args.execution_steps,
+        "flow_matching_denoise_steps": int(policy.config.num_steps),
         "physical_action_dim": 13,
         "model_action_dim": int(policy.config.max_action_dim),
         "delta_mask": [False] * 13,
@@ -254,6 +257,7 @@ def rollout_episode(
             "reference_images_used_at_every_replan": True,
             "predicted_action_chunk_length": int(policy.config.chunk_size),
             "executed_prefix_length": args.execution_steps,
+            "flow_matching_denoise_steps": int(policy.config.num_steps),
             "left_arm_channels_0_7": "absolute_joint_target",
             "left_inspire_channels_7_13": "absolute_joint_target",
             "supervision_source": "future observation.state",
@@ -270,7 +274,12 @@ def main() -> None:
     args = parse_args()
     if len(args.episodes) != len(args.split_labels):
         raise SystemExit("--episodes and --split-labels must have the same length")
-    if args.num_steps <= 0 or args.execution_steps <= 0 or args.start_frame < 0:
+    if (
+        args.num_steps <= 0
+        or args.execution_steps <= 0
+        or args.start_frame < 0
+        or (args.denoise_steps is not None and args.denoise_steps <= 0)
+    ):
         raise SystemExit("start-frame must be non-negative; step counts must be positive")
     if args.execution_steps > 50:
         raise SystemExit("execution-steps cannot exceed the 50-step action horizon")
@@ -292,6 +301,7 @@ def main() -> None:
             if args.non_action_checkpoint is not None
             else None
         ),
+        denoise_steps=args.denoise_steps,
         use_length=50,
         chunk_ret=True,
         use_bf16=not args.use_fp32,

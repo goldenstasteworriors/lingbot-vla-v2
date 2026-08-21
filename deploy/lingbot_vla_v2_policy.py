@@ -192,6 +192,7 @@ class LingbotVLAv2Server:
         training_config_path=None,
         compact_checkpoint_path=None,
         non_action_checkpoint_path=None,
+        denoise_steps=None,
         adaptive_ensemble_alpha=0.1,
         action_ensemble_horizon=8,
         use_length=1,
@@ -209,6 +210,9 @@ class LingbotVLAv2Server:
         self.training_config_path = training_config_path
         self.compact_checkpoint_path = compact_checkpoint_path
         self.non_action_checkpoint_path = non_action_checkpoint_path
+        if denoise_steps is not None and denoise_steps <= 0:
+            raise ValueError("denoise_steps must be positive")
+        self.denoise_steps = denoise_steps
 
         self.task_description = None
 
@@ -349,7 +353,9 @@ class LingbotVLAv2Server:
 
         if 'vocab_size' in training_config['model'] and training_config['model']['vocab_size'] != 0:
             config.vocab_size = training_config['model']['vocab_size']
-        # config.num_steps = 4
+        if self.denoise_steps is not None:
+            config.num_steps = int(self.denoise_steps)
+            print(f"Flow Matching denoise steps: {config.num_steps}")
         config.use_cache = True # is necessary in inference
         # load processors
         self.processor = build_processor(base_model_path)
