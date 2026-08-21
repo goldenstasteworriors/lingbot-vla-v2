@@ -1010,10 +1010,11 @@ class FlowMatchingV2(FlowMatchingV1):
             deepstack_visual_embeds=deepstack_visual_embeds,
         )
 
-        dt = torch.tensor(-1.0 / self.config.num_steps, dtype=dtype, device=device)
+        num_steps = int(self.config.num_steps)
+        if num_steps <= 0:
+            raise ValueError("Flow Matching num_steps must be positive")
+        dt = torch.tensor(-1.0 / num_steps, dtype=dtype, device=device)
         x_t = noise
-        time = torch.tensor(1.0, dtype=dtype, device=device)
-        count = 0
         predict_velocity_fn = self.predict_velocity
         if getattr(self, "_use_compile_predict_velocity", False):
             predict_velocity_fn = getattr(self, "_compiled_predict_velocity", None)
@@ -1026,8 +1027,8 @@ class FlowMatchingV2(FlowMatchingV1):
                 )
                 self._compiled_predict_velocity = predict_velocity_fn
 
-        while time >= -dt / 2:
-            count += 1
+        for step in range(num_steps):
+            time = torch.tensor(1.0 - step / num_steps, dtype=dtype, device=device)
             expanded_time = time.expand(bsize)
             v_t = predict_velocity_fn(
                 state,
@@ -1039,8 +1040,7 @@ class FlowMatchingV2(FlowMatchingV1):
             )
 
             x_t += dt * v_t
-            time += dt
-        print(f"Denoise {count} steps")
+        print(f"Denoise {num_steps} steps")
         return x_t
 
     def predict_velocity(
