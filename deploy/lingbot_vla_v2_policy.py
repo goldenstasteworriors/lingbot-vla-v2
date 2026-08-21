@@ -189,6 +189,9 @@ class LingbotVLAv2Server:
         self,
         path_to_pi_model="",
         robot_norm_path=None,
+        training_config_path=None,
+        compact_checkpoint_path=None,
+        non_action_checkpoint_path=None,
         adaptive_ensemble_alpha=0.1,
         action_ensemble_horizon=8,
         use_length=1,
@@ -203,6 +206,9 @@ class LingbotVLAv2Server:
         self.use_length = use_length
         self.chunk_ret = chunk_ret
         self.robot_norm_path = robot_norm_path
+        self.training_config_path = training_config_path
+        self.compact_checkpoint_path = compact_checkpoint_path
+        self.non_action_checkpoint_path = non_action_checkpoint_path
 
         self.task_description = None
 
@@ -233,6 +239,39 @@ class LingbotVLAv2Server:
                 for key in f.keys():
                     merged_weights[key] = f.get_tensor(key)
         self.vla.load_state_dict(merged_weights, strict=strict)
+
+    def load_compact_weights(self) -> None:
+        checkpoint_paths = [
+            path
+            for path in (self.non_action_checkpoint_path, self.compact_checkpoint_path)
+            if path is not None
+        ]
+        loaded_steps = []
+        for checkpoint_path in checkpoint_paths:
+            checkpoint_path = Path(checkpoint_path).expanduser().resolve()
+            payload = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+            if payload.get("format") not in {
+                "lingbotvla_trainable_only_v1",
+                "lingbotvla_action_head_only_v1",
+                "lingbotvla_non_action_latest_v1",
+            }:
+                raise ValueError(
+                    f"Unsupported compact checkpoint format at {checkpoint_path}: "
+                    f"{payload.get('format')!r}"
+                )
+            incompatible = self.vla.load_state_dict(payload["model"], strict=False)
+            if incompatible.unexpected_keys:
+                raise ValueError(
+                    f"Unexpected compact checkpoint keys at {checkpoint_path}: "
+                    f"{incompatible.unexpected_keys[:20]}"
+                )
+            loaded_steps.append(int(payload["global_step"]))
+            print(
+                f"Loaded compact overlay: {checkpoint_path} "
+                f"step={payload['global_step']} parameters={len(payload['model'])}"
+            )
+        if len(set(loaded_steps)) > 1:
+            raise ValueError(f"Compact checkpoint steps do not match: {loaded_steps}")
 
     def merge_qwen_config(self, qwen_config):
         if hasattr(qwen_config, 'to_dict'):
@@ -273,7 +312,11 @@ class LingbotVLAv2Server:
         print(f"loading model from: {path_to_pi_model}")
         
         # load training config
-        training_config_path = Path(path_to_pi_model).parent.parent.parent/'lingbotvla_cli.yaml'
+        training_config_path = (
+            Path(self.training_config_path).expanduser().resolve()
+            if self.training_config_path is not None
+            else Path(path_to_pi_model).parent.parent.parent / "lingbotvla_cli.yaml"
+        )
         with open(training_config_path, 'r') as f:
             training_config = yaml.safe_load(f)
         f.close()
@@ -318,6 +361,7 @@ class LingbotVLAv2Server:
         self.vla = LingBotVlaV2InferencePolicy(config, eval=True)
 
         self.load_model_weights(path_to_pi_model, strict=True)
+        self.load_compact_weights()
         
         self.vla.feature_transform = None
         self.data_config = data_config
@@ -359,7 +403,11 @@ class LingbotVLAv2Server:
                     chunk_size=self.config.chunk_size, norm_stats_path=self.robot_norm_path)
         # Load data processors
         self.vla.feature_transform = feature_transform
-        self.action_key = feature_transform.org_features["actions"]
+        self.action_key = (
+            feature_transform.actions
+            if feature_transform.actions_convert_from_state
+            else feature_transform.org_features["actions"]
+        )
     def resize_image(self, observation):
         image_features  = self.vla.feature_transform.org_features['images']
         image_size = getattr(self.data_config, 'img_size', 256)
@@ -382,7 +430,17 @@ class LingbotVLAv2Server:
             single['actions'] = action.to(dtype=torch.float32, device='cpu')
             if self.use_bf16 and 'state' in single:
                 single['state'] = single['state'].to(dtype=torch.float32)
-            data = self.vla.feature_transform.unapply(single)
+            feature_transform = self.vla.feature_transform
+            if feature_transform.actions_convert_from_state:
+                if any(feature_transform.action_subtract_state.values()):
+                    raise NotImplementedError(
+                        "Inference for convert_from_state with relative actions is not supported."
+                    )
+                data = feature_transform.reverse_pad_and_concat(single)
+                if feature_transform.normalizer is not None:
+                    data = feature_transform.normalizer.unnormalize(data)
+            else:
+                data = feature_transform.unapply(single)
             
             for action in self.action_key:
                 # keep action keys after unapply
