@@ -19,6 +19,14 @@ import torch.nn.functional as F
 
 logger = logging_utils.get_logger(__name__)
 
+
+def _parse_mapping_entry(entry):
+    """Accept both parsed YAML mappings and CLI-serialized mappings."""
+    mapping = entry if isinstance(entry, dict) else ast.literal_eval(entry)
+    if not isinstance(mapping, dict):
+        raise TypeError(f"Expected a mapping entry, got {type(mapping).__name__}")
+    return mapping
+
 def compute_image_token_count(images, image_grid_thw=None, merge_size=2, use_vision_boundaries=True):
     if not isinstance(images, torch.Tensor) or images.numel() == 0:
         return 0
@@ -53,7 +61,7 @@ class FeatureInfo(BaseModel):
         joints= []
         joints_max_dim = {}
         for s in joints_info:
-            joint_info = ast.literal_eval(s)
+            joint_info = _parse_mapping_entry(s)
             joint = next(iter(joint_info.keys()))
             if joint_info[joint] == 0: continue
 
@@ -136,7 +144,11 @@ class FeatureTransform:
 
         if not do_nomalize: return None
 
-        action_state_norm_type = {k: v for d in data_config.norm_type for k, v in ast.literal_eval(d).items()} 
+        action_state_norm_type = {
+            k: v
+            for entry in data_config.norm_type
+            for k, v in _parse_mapping_entry(entry).items()
+        }
 
         assert norm_stats_path is not None
         norm_type = {}
