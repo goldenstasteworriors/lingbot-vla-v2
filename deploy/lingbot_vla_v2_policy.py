@@ -380,7 +380,9 @@ class LingbotVLAv2Server:
             self.sample_actions_fn = torch.compile(self.vla.model.sample_actions)
 
         if self.robot_norm_path is None:
-            self.robot_norm_path = data_config.norm_stats_file
+            # Most training configs rely on the robot config's ``norm_stats``
+            # entry instead of overriding it through ``data.norm_stats_file``.
+            self.robot_norm_path = getattr(data_config, "norm_stats_file", None)
 
         print('Model initialized ... ')
 
