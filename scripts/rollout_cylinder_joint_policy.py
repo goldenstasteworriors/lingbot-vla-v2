@@ -126,6 +126,8 @@ def rollout_episode(
     policy.reset(args.robot_name)
     predicted_states = [reference_states[args.start_frame].copy()]
     predicted_actions = []
+    predicted_action_chunks = []
+    executed_prefix_lengths = []
     input_states = []
     replan_frames = []
     latencies = []
@@ -155,6 +157,8 @@ def rollout_episode(
             break
         predicted_states.extend(chunk[:execute])
         predicted_actions.extend(chunk[:execute])
+        predicted_action_chunks.append(chunk.copy())
+        executed_prefix_lengths.append(execute)
         input_states.append(np.asarray(input_state, dtype=np.float32))
         replan_frames.append(frame_index)
         print(
@@ -166,6 +170,15 @@ def rollout_episode(
 
     predicted_states_array = np.asarray(predicted_states, dtype=np.float32)
     predicted_actions_array = np.asarray(predicted_actions, dtype=np.float32)
+    predicted_action_chunks_array = np.stack(predicted_action_chunks).astype(
+        np.float32, copy=False
+    )
+    executed_prefix_lengths_array = np.asarray(executed_prefix_lengths, dtype=np.int64)
+    replan_frames_array = np.asarray(replan_frames, dtype=np.int64)
+    action_chunk_frame_indices = (
+        replan_frames_array[:, None]
+        + np.arange(predicted_action_chunks_array.shape[1], dtype=np.int64)[None, :]
+    )
     reference = reference_states[args.start_frame : stop_frame + 1]
     frame_indices = all_frame_indices[args.start_frame : stop_frame + 1]
     if predicted_states_array.shape != reference.shape:
@@ -183,13 +196,16 @@ def rollout_episode(
         output,
         predicted_state=predicted_states_array,
         predicted_action=predicted_actions_array,
+        predicted_action_chunks=predicted_action_chunks_array,
+        action_chunk_frame_indices=action_chunk_frame_indices,
+        executed_prefix_lengths=executed_prefix_lengths_array,
         reference_state=reference,
         reference_action=reference,
         frame_indices=frame_indices,
         timestamps=(frame_indices - frame_indices[0]) / float(metadata.fps),
         latency_seconds=np.asarray(latencies, dtype=np.float64),
         input_state_at_replan=np.asarray(input_states, dtype=np.float32),
-        replan_frame_indices=np.asarray(replan_frames, dtype=np.int64),
+        replan_frame_indices=replan_frames_array,
         initial_reference_state=reference[0],
     )
 
@@ -222,6 +238,8 @@ def rollout_episode(
         "execution_steps": args.execution_steps,
         "denoise_steps": int(policy.config.num_steps),
         "action_horizon": int(policy.config.chunk_size),
+        "saved_action_chunks": int(predicted_action_chunks_array.shape[0]),
+        "saved_action_chunk_shape": list(predicted_action_chunks_array.shape),
         "state_rmse": float(np.sqrt(np.mean(error**2))),
         "arm_state_rmse": float(np.sqrt(np.mean(error[:, :7] ** 2))),
         "hand_state_rmse": float(np.sqrt(np.mean(error[:, 7:] ** 2))),
@@ -231,7 +249,7 @@ def rollout_episode(
         json.dumps(summary, indent=2) + "\n", encoding="utf-8"
     )
     manifest = {
-        "format_version": 1,
+        "format_version": 2,
         "experiment": args.model_label,
         "model": str(args.base_model.resolve()),
         "compact_checkpoint": str(args.checkpoint.resolve()),
@@ -244,6 +262,10 @@ def rollout_episode(
         "image_key": "observation.images.ego_view",
         "action_horizon": int(policy.config.chunk_size),
         "executed_steps_per_chunk": args.execution_steps,
+        "full_action_chunks_saved": True,
+        "full_action_chunks_npz_key": "predicted_action_chunks",
+        "action_chunk_frame_indices_npz_key": "action_chunk_frame_indices",
+        "executed_prefix_lengths_npz_key": "executed_prefix_lengths",
         "flow_matching_denoise_steps": int(policy.config.num_steps),
         "physical_action_dim": 13,
         "model_action_dim": int(policy.config.max_action_dim),
@@ -257,6 +279,7 @@ def rollout_episode(
             "reference_images_used_at_every_replan": True,
             "predicted_action_chunk_length": int(policy.config.chunk_size),
             "executed_prefix_length": args.execution_steps,
+            "all_predicted_action_chunks_saved": True,
             "flow_matching_denoise_steps": int(policy.config.num_steps),
             "left_arm_channels_0_7": "absolute_joint_target",
             "left_inspire_channels_7_13": "absolute_joint_target",
